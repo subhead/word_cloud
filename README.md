@@ -1,39 +1,47 @@
-[![Build Status](https://travis-ci.org/amueller/word_cloud.png)](https://travis-ci.org/amueller/word_cloud)
 [![licence](http://img.shields.io/badge/licence-MIT-blue.svg?style=flat)](https://github.com/amueller/word_cloud/blob/master/LICENSE)
 [![DOI](https://zenodo.org/badge/21369/amueller/word_cloud.svg)](https://zenodo.org/badge/latestdoi/21369/amueller/word_cloud)
 
+|      | Linux                                        | macOS                                        | Windows                                      |
+|------|----------------------------------------------|----------------------------------------------|----------------------------------------------|
+| PyPI | [![CircleCI][circleci_image]][circleci_link] | [![TravisCI][travisci_image]][travisci_link] | [![AppVeyor][appveyor_image]][appveyor_link] |
 
+[circleci_link]: https://circleci.com/gh/amueller/word_cloud/tree/master
+[circleci_image]: https://circleci.com/gh/amueller/word_cloud/tree/master.svg?style=svg
+
+[travisci_link]: https://travis-ci.org/amueller/word_cloud
+[travisci_image]: https://travis-ci.org/amueller/word_cloud.svg?branch=master
+
+[appveyor_link]: https://ci.appveyor.com/project/amueller/word-cloud/branch/master
+[appveyor_image]: https://img.shields.io/appveyor/ci/amueller/word-cloud/master.svg
 
 word_cloud
 ==========
 
 A little word cloud generator in Python. Read more about it on the [blog
 post][blog-post] or the [website][website].
-The code is Python 2, but Python 3 compatible.
+
+The code is tested against Python 2.7, 3.4, 3.5, 3.6 and 3.7.
 
 ## Installation
 
-Fast install:
+If you are using pip:
 
     pip install wordcloud
 
-If you are using conda, it might be even easier to use anaconda cloud:
+If you are using conda, you can install from the `conda-forge` channel:
 
-    conda install -c https://conda.anaconda.org/amueller wordcloud
+    conda install -c conda-forge wordcloud
 
-For a manual install get this package:
-    
-    wget https://github.com/amueller/word_cloud/archive/master.zip
-    unzip master.zip
-    rm master.zip
-    cd word_cloud-master
 
-Install the package:
+#### Installation notes
 
-    python setup.py install
+wordcloud depends on `numpy` and `pillow`.
 
-Note that if you are not on Ubuntu, you need to pass a ``font_path`` to the WordCloud object ([docs](http://amueller.github.io/word_cloud/generated/wordcloud.WordCloud.html#wordcloud.WordCloud)) to point to
-some existing font.
+To save the wordcloud into a file, `matplotlib` can also be installed. See [examples](#examples) below.
+
+If there are no wheels available for your version of python, installing the
+package requires having a C compiler set up. Before installing a compiler, report
+an issue describing the version of python and operating system being used.
 
 
 ## Examples
@@ -52,53 +60,17 @@ Getting fancy with some colors:
 
 ## Command-line usage
 
-The `wordcloud_cli.py` tool can be used to generate word clouds directly from the command-line:
+The `wordcloud_cli` tool can be used to generate word clouds directly from the command-line:
 
-	$ wordcloud_cli.py --text mytext.txt --imagefile wordcloud.png
+	$ wordcloud_cli --text mytext.txt --imagefile wordcloud.png
 
 If you're dealing with PDF files, then `pdftotext`, included by default with many Linux distribution, comes in handy:
 
-	$ pdftotext mydocument.pdf - | wordcloud_cli.py --imagefile wordcloud.png
+	$ pdftotext mydocument.pdf - | wordcloud_cli --imagefile wordcloud.png
 
 In the previous example, the `-` argument orders `pdftotext` to write the resulting text to stdout, which is then piped to the stdin of `wordcloud_cli.py`.
 
-Use `wordcloud_cli.py --help` so see all available options.
-
-
-## Used in
-
-### Reddit Cloud
-
-[Reddit Cloud][reddit-cloud] is a Reddit bot which generates word clouds for
-comments in submissions and user histories. You can see it being operated on
-[/u/WordCloudBot2][wc2] ([top posting][wc2top]).
-
-![A Reddit Cloud sample](http://i.imgur.com/tcbZnKW.png)
-
-### Chat Stats (Twitch.tv)
-
-[Chat Stats][chat-stats] is a visualization program for Twitch streams,
-which generates word clouds for comments made by Twitch users in the chat.
-It also creates various charts and graphs pertaining to concurrent viewership
-and chat rate over time.
-
-![Chat Stats Sample](http://i.imgur.com/xBczk0x.png)
-
-### Twitter Word Cloud Bot
-
-[Twitter Word Cloud Bot][twitter-word-cloud-bot] is a twitter bot which generates
-word clouds for twitter users when it is mentioned with a particular hashtag.
-[Here][twitter-wordnuvola] you can see it in action, while [here][imgur-wordnuvola]
-you can see all the word clouds generated so far.
-
-### [other]
-
-*Send a pull request to add yours here.*
-
-## Issues
-
-Using Pillow instead of PIL might might get you the [`TypeError: 'int' object is
-not iterable` problem][intprob] also showcased on the blog.
+Use `wordcloud_cli --help` so see all available options.
 
 [blog-post]: http://peekaboo-vision.blogspot.de/2012/11/a-wordcloud-in-python.html
 [website]: http://amueller.github.io/word_cloud/

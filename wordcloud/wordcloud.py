@@ -13,23 +13,22 @@ import os
 import re
 import sys
 import colorsys
+import matplotlib
 import numpy as np
 from operator import itemgetter
 
 from PIL import Image
 from PIL import ImageColor
 from PIL import ImageDraw
+from PIL import ImageFilter
 from PIL import ImageFont
 
 from .query_integral_image import query_integral_image
 from .tokenization import unigrams_and_bigrams, process_tokens
 
-item1 = itemgetter(1)
-
-FONT_PATH = os.environ.get("FONT_PATH", os.path.join(os.path.dirname(__file__),
-                                                     "DroidSansMono.ttf"))
-STOPWORDS = set([x.strip() for x in open(
-    os.path.join(os.path.dirname(__file__), 'stopwords')).read().split('\n')])
+FILE = os.path.dirname(__file__)
+FONT_PATH = os.environ.get('FONT_PATH', os.path.join(FILE, 'DroidSansMono.ttf'))
+STOPWORDS = set(map(str.strip, open(os.path.join(FILE, 'stopwords')).readlines()))
 
 
 class IntegralOccupancyMap(object):
@@ -106,7 +105,8 @@ class colormap_color_func(object):
                  random_state=None, **kwargs):
         if random_state is None:
             random_state = Random()
-        r, g, b, _ = 255 * np.array(self.colormap(random_state.uniform(0, 1)))
+        r, g, b, _ = np.maximum(0, 255 * np.array(self.colormap(
+            random_state.uniform(0, 1))))
         return "rgb({:.0f}, {:.0f}, {:.0f})".format(r, g, b)
 
 
@@ -148,7 +148,7 @@ def get_single_color_func(color):
 
 
 class WordCloud(object):
-    """Word cloud object for generating and drawing.
+    r"""Word cloud object for generating and drawing.
 
     Parameters
     ----------
@@ -165,6 +165,9 @@ class WordCloud(object):
 
     prefer_horizontal : float (default=0.90)
         The ratio of times to try horizontal fitting as opposed to vertical.
+        If prefer_horizontal < 1, the algorithm will try rotating the word
+        if it doesn't fit. (There is currently no built-in way to get only
+        vertical words.)
 
     mask : nd-array or None (default=None)
         If not None, gives a binary mask on where to draw words. If mask is not
@@ -172,6 +175,12 @@ class WordCloud(object):
         used instead. All white (#FF or #FFFFFF) entries will be considerd
         "masked out" while other entries will be free to draw on. [This
         changed in the most recent version!]
+
+    contour_width: float (default=0)
+        If mask is not None and contour_width > 0, draw the mask contour.
+
+    contour_color: color value (default="black")
+        Mask contour color.
 
     scale : float (default=1)
         Scaling between computation and drawing. For large word-cloud images,
@@ -191,7 +200,7 @@ class WordCloud(object):
 
     stopwords : set of strings or None
         The words that will be eliminated. If None, the build-in STOPWORDS
-        list will be used.
+        list will be used. Ignored if using generate_from_frequencies.
 
     background_color : color value (default="black")
         Background color for the word cloud image.
@@ -204,28 +213,37 @@ class WordCloud(object):
         Transparent background will be generated when mode is "RGBA" and
         background_color is None.
 
-    relative_scaling : float (default=.5)
+    relative_scaling : float (default='auto')
         Importance of relative word frequencies for font-size.  With
         relative_scaling=0, only word-ranks are considered.  With
         relative_scaling=1, a word that is twice as frequent will have twice
         the size.  If you want to consider the word frequencies and not only
         their rank, relative_scaling around .5 often looks good.
+        If 'auto' it will be set to 0.5 unless repeat is true, in which
+        case it will be set to 0.
 
         .. versionchanged: 2.0
-            Default is now 0.5.
+            Default is now 'auto'.
 
     color_func : callable, default=None
         Callable with parameters word, font_size, position, orientation,
         font_path, random_state that returns a PIL color for each word.
         Overwrites "colormap".
         See colormap for specifying a matplotlib colormap instead.
+        To create a word cloud with a single color, use
+        ``color_func=lambda *args, **kwargs: "white"``.
+        The single color can also be specified using RGB code. For example
+        ``color_func=lambda *args, **kwargs: (255,0,0)`` sets color to red.
 
     regexp : string or None (optional)
         Regular expression to split the input text into tokens in process_text.
-        If None is specified, ``r"\w[\w']+"`` is used.
+        If None is specified, ``r"\w[\w']+"`` is used. Ignored if using
+        generate_from_frequencies.
 
     collocations : bool, default=True
-        Whether to include collocations (bigrams) of two words.
+        Whether to include collocations (bigrams) of two words. Ignored if using
+        generate_from_frequencies.
+
 
         .. versionadded: 2.0
 
@@ -239,7 +257,18 @@ class WordCloud(object):
         Whether to remove trailing 's' from words. If True and a word
         appears with and without a trailing 's', the one with trailing 's'
         is removed and its counts are added to the version without
-        trailing 's' -- unless the word ends with 'ss'.
+        trailing 's' -- unless the word ends with 'ss'. Ignored if using
+        generate_from_frequencies.
+
+    repeat : bool, default=False
+        Whether to repeat words and phrases until max_words or min_font_size
+        is reached.
+
+    include_numbers : bool, default=False
+        Whether to include numbers as phrases or not.
+
+    min_word_length : int, default=0
+        Minimum number of letters a word must have to be included.
 
     Attributes
     ----------
@@ -268,13 +297,13 @@ class WordCloud(object):
                  color_func=None, max_words=200, min_font_size=4,
                  stopwords=None, random_state=None, background_color='black',
                  max_font_size=None, font_step=1, mode="RGB",
-                 relative_scaling=.5, regexp=None, collocations=True,
-                 colormap=None, normalize_plurals=True):
+                 relative_scaling='auto', regexp=None, collocations=True,
+                 colormap=None, normalize_plurals=True, contour_width=0,
+                 contour_color='black', repeat=False,
+                 include_numbers=False, min_word_length=0):
         if font_path is None:
             font_path = FONT_PATH
         if color_func is None and colormap is None:
-            # we need a color map
-            import matplotlib
             version = matplotlib.__version__
             if version[0] < "2" and version[2] < "5":
                 colormap = "hsv"
@@ -288,6 +317,8 @@ class WordCloud(object):
         self.margin = margin
         self.prefer_horizontal = prefer_horizontal
         self.mask = mask
+        self.contour_color = contour_color
+        self.contour_width = contour_width
         self.scale = scale
         self.color_func = color_func or colormap_color_func(colormap)
         self.max_words = max_words
@@ -301,6 +332,13 @@ class WordCloud(object):
         self.background_color = background_color
         self.max_font_size = max_font_size
         self.mode = mode
+
+        if relative_scaling == "auto":
+            if repeat:
+                relative_scaling = 0
+            else:
+                relative_scaling = .5
+
         if relative_scaling < 0 or relative_scaling > 1:
             raise ValueError("relative_scaling needs to be "
                              "between 0 and 1, got %f." % relative_scaling)
@@ -310,6 +348,9 @@ class WordCloud(object):
                           " it had no effect. Look into relative_scaling.",
                           DeprecationWarning)
         self.normalize_plurals = normalize_plurals
+        self.repeat = repeat
+        self.include_numbers = include_numbers
+        self.min_word_length = min_word_length
 
     def fit_words(self, frequencies):
         """Create a word_cloud from words and frequencies.
@@ -318,8 +359,8 @@ class WordCloud(object):
 
         Parameters
         ----------
-        frequencies : array of tuples
-            A tuple contains the word and its frequency.
+        frequencies : dict from string to float
+            A contains words and associated frequency.
 
         Returns
         -------
@@ -327,7 +368,7 @@ class WordCloud(object):
         """
         return self.generate_from_frequencies(frequencies)
 
-    def generate_from_frequencies(self, frequencies, max_font_size=None):
+    def generate_from_frequencies(self, frequencies, max_font_size=None):  # noqa: C901
         """Create a word_cloud from words and frequencies.
 
         Parameters
@@ -344,8 +385,12 @@ class WordCloud(object):
 
         """
         # make sure frequencies are sorted and normalized
-        frequencies = sorted(frequencies.items(), key=item1, reverse=True)
+        frequencies = sorted(frequencies.items(), key=itemgetter(1), reverse=True)
+        if len(frequencies) <= 0:
+            raise ValueError("We need at least 1 word to plot a word cloud, "
+                             "got %d." % len(frequencies))
         frequencies = frequencies[:self.max_words]
+
         # largest entry will be 1
         max_frequency = float(frequencies[0][1])
 
@@ -357,25 +402,10 @@ class WordCloud(object):
         else:
             random_state = Random()
 
-        if len(frequencies) <= 0:
-            print("We need at least 1 word to plot a word cloud, got %d."
-                  % len(frequencies))
-
         if self.mask is not None:
-            mask = self.mask
-            width = mask.shape[1]
-            height = mask.shape[0]
-            if mask.dtype.kind == 'f':
-                warnings.warn("mask image should be unsigned byte between 0"
-                              " and 255. Got a float array")
-            if mask.ndim == 2:
-                boolean_mask = mask == 255
-            elif mask.ndim == 3:
-                # if all channels are white, mask out
-                boolean_mask = np.all(mask[:, :, :3] == 255, axis=-1)
-            else:
-                raise ValueError("Got mask of invalid shape: %s"
-                                 % str(mask.shape))
+            boolean_mask = self._get_bolean_mask(self.mask)
+            width = self.mask.shape[1]
+            height = self.mask.shape[0]
         else:
             boolean_mask = None
             height, width = self.height, self.width
@@ -404,7 +434,19 @@ class WordCloud(object):
                                                max_font_size=self.height)
                 # find font sizes
                 sizes = [x[1] for x in self.layout_]
-                font_size = 2 * sizes[0] * sizes[1] / (sizes[0] + sizes[1])
+                try:
+                    font_size = int(2 * sizes[0] * sizes[1]
+                                    / (sizes[0] + sizes[1]))
+                # quick fix for if self.layout_ contains less than 2 values
+                # on very small images it can be empty
+                except IndexError:
+                    try:
+                        font_size = sizes[0]
+                    except IndexError:
+                        raise ValueError(
+                            "Couldn't find space to draw. Either the Canvas size"
+                            " is too small or too much of the image is masked "
+                            "out.")
         else:
             font_size = max_font_size
 
@@ -412,8 +454,20 @@ class WordCloud(object):
         # above... hurray for good design?
         self.words_ = dict(frequencies)
 
+        if self.repeat and len(frequencies) < self.max_words:
+            # pad frequencies with repeating words.
+            times_extend = int(np.ceil(self.max_words / len(frequencies))) - 1
+            # get smallest frequency
+            frequencies_org = list(frequencies)
+            downweight = frequencies[-1][1]
+            for i in range(times_extend):
+                frequencies.extend([(word, freq * downweight ** (i + 1))
+                                    for word, freq in frequencies_org])
+
         # start drawing grey image
         for word, freq in frequencies:
+            if freq == 0:
+                continue
             # select the font size
             rs = self.relative_scaling
             if rs != 0:
@@ -440,7 +494,8 @@ class WordCloud(object):
                     # either we found a place or font-size went too small
                     break
                 # if we didn't find a place, make font smaller
-                if tried_other_orientation is False:
+                # but first try to rotate!
+                if not tried_other_orientation and self.prefer_horizontal < 1:
                     orientation = (Image.ROTATE_90 if orientation is None else
                                    Image.ROTATE_90)
                     tried_other_orientation = True
@@ -499,9 +554,9 @@ class WordCloud(object):
         include all those things.
         """
 
-        stopwords = set(map(str.lower, self.stopwords))
+        stopwords = set([i.lower() for i in self.stopwords])
 
-        flags = (re.UNICODE if sys.version < '3' and type(text) is unicode
+        flags = (re.UNICODE if sys.version < '3' and type(text) is unicode  # noqa: F821
                  else 0)
         regexp = self.regexp if self.regexp is not None else r"\w[\w']+"
 
@@ -512,7 +567,11 @@ class WordCloud(object):
         words = [word[:-2] if word.lower().endswith("'s") else word
                  for word in words]
         # remove numbers
-        words = [word for word in words if not word.isdigit()]
+        if not self.include_numbers:
+            words = [word for word in words if not word.isdigit()]
+        # remove short words
+        if self.min_word_length:
+            words = [word for word in words if len(word) >= self.min_word_length]
 
         if self.collocations:
             word_counts = unigrams_and_bigrams(words, self.normalize_plurals)
@@ -523,6 +582,10 @@ class WordCloud(object):
 
     def generate_from_text(self, text):
         """Generate wordcloud from text.
+
+        The input "text" is expected to be a natural text. If you pass a sorted
+        list of words, words will appear in your output twice. To remove this
+        duplication, set ``collocations=False``.
 
         Calls process_text and generate_from_frequencies.
 
@@ -540,6 +603,10 @@ class WordCloud(object):
 
     def generate(self, text):
         """Generate wordcloud from text.
+
+        The input "text" is expected to be a natural text. If you pass a sorted
+        list of words, words will appear in your output twice. To remove this
+        duplication, set ``collocations=False``.
 
         Alias to generate_from_text.
 
@@ -577,7 +644,8 @@ class WordCloud(object):
             pos = (int(position[1] * self.scale),
                    int(position[0] * self.scale))
             draw.text(pos, word, fill=color, font=transposed_font)
-        return img
+
+        return self._draw_contour(img=img)
 
     def recolor(self, random_state=None, color_func=None, colormap=None):
         """Recolor existing layout.
@@ -635,7 +703,7 @@ class WordCloud(object):
         """
 
         img = self.to_image()
-        img.save(filename)
+        img.save(filename, optimize=True)
         return self
 
     def to_array(self):
@@ -660,3 +728,47 @@ class WordCloud(object):
 
     def to_html(self):
         raise NotImplementedError("FIXME!!!")
+
+    def _get_bolean_mask(self, mask):
+        """Cast to two dimensional boolean mask."""
+        if mask.dtype.kind == 'f':
+            warnings.warn("mask image should be unsigned byte between 0"
+                          " and 255. Got a float array")
+        if mask.ndim == 2:
+            boolean_mask = mask == 255
+        elif mask.ndim == 3:
+            # if all channels are white, mask out
+            boolean_mask = np.all(mask[:, :, :3] == 255, axis=-1)
+        else:
+            raise ValueError("Got mask of invalid shape: %s" % str(mask.shape))
+        return boolean_mask
+
+    def _draw_contour(self, img):
+        """Draw mask contour on a pillow image."""
+        if self.mask is None or self.contour_width == 0:
+            return img
+
+        mask = self._get_bolean_mask(self.mask) * 255
+        contour = Image.fromarray(mask.astype(np.uint8))
+        contour = contour.resize(img.size)
+        contour = contour.filter(ImageFilter.FIND_EDGES)
+        contour = np.array(contour)
+
+        # make sure borders are not drawn before changing width
+        contour[[0, -1], :] = 0
+        contour[:, [0, -1]] = 0
+
+        # use gaussian to change width, divide by 10 to give more resolution
+        radius = self.contour_width / 10
+        contour = Image.fromarray(contour)
+        contour = contour.filter(ImageFilter.GaussianBlur(radius=radius))
+        contour = np.array(contour) > 0
+        contour = np.dstack((contour, contour, contour))
+
+        # color the contour
+        ret = np.array(img) * np.invert(contour)
+        if self.contour_color != 'black':
+            color = Image.new(img.mode, img.size, self.contour_color)
+            ret += np.array(color) * contour
+
+        return Image.fromarray(ret)
