@@ -6,6 +6,7 @@ import pytest
 from random import Random
 from numpy.testing import assert_array_equal
 from PIL import Image
+import xml.etree.ElementTree as ET
 
 import matplotlib
 matplotlib.use('Agg')
@@ -40,17 +41,63 @@ Namespaces are one honking great idea -- let's do more of those!
     46 09 55 05 82   23 17 25 35 94   08 128
 """
 
+STOPWORDED_COLLOCATIONS = """
+thank you very much
+thank you very much
+thank you very much
+thanks
+"""
+
+STOPWORDED_COLLOCATIONS_UPPERCASE = """
+Thank you very much
+Thank you very much
+Thank you very much
+thank you very much
+hi There
+Hi there
+Hi There
+thanks
+"""
+
+SMALL_CANVAS = """
+better late than never someone will say
+"""
+
 
 def test_collocations():
-    wc = WordCloud(collocations=False, stopwords=[])
+    wc = WordCloud(collocations=False, stopwords=set())
     wc.generate(THIS)
 
-    wc2 = WordCloud(collocations=True, stopwords=[])
+    wc2 = WordCloud(collocations=True, stopwords=set())
     wc2.generate(THIS)
 
     assert "is better" in wc2.words_
     assert "is better" not in wc.words_
     assert "way may" not in wc2.words_
+
+
+def test_collocation_stopwords():
+    wc = WordCloud(collocations=True, stopwords={"you", "very"}, collocation_threshold=9)
+    wc.generate(STOPWORDED_COLLOCATIONS)
+
+    assert "thank you" not in wc.words_
+    assert "very much" not in wc.words_
+    assert "thank" in wc.words_
+    # a bigram of all stopwords will be removed
+    assert "you very" not in wc.words_
+
+
+def test_collocation_stopwords_uppercase():
+    wc = WordCloud(collocations=True, stopwords={"thank", "hi", "there"}, collocation_threshold=9)
+    wc.generate(STOPWORDED_COLLOCATIONS_UPPERCASE)
+
+    assert "Thank you" not in wc.words_
+    assert "thank you" not in wc.words_
+    assert "Thank" not in wc.words_
+    # a bigram of all stopwords will be removed
+    assert "hi There" not in wc.words_
+    assert "Hi there" not in wc.words_
+    assert "Hi There" not in wc.words_
 
 
 def test_plurals_numbers():
@@ -138,8 +185,6 @@ def test_writing_to_file(tmpdir):
 
 def test_check_errors():
     wc = WordCloud()
-    with pytest.raises(NotImplementedError):
-        wc.to_html()
 
     try:
         np.array(wc)
@@ -152,6 +197,13 @@ def test_check_errors():
         raise AssertionError("wc.recolor didn't raise")
     except ValueError as e:
         assert "call generate" in str(e)
+
+
+def test_svg_syntax():
+    wc = WordCloud()
+    wc.generate(THIS)
+    svg = wc.to_svg()
+    ET.fromstring(svg)
 
 
 def test_recolor():
@@ -187,13 +239,13 @@ def test_mask():
     # check that using an empty mask is equivalent to not using a mask
     wc = WordCloud(random_state=42)
     wc.generate(THIS)
-    mask = np.zeros(np.array(wc).shape[:2], dtype=np.int)
+    mask = np.zeros(np.array(wc).shape[:2], dtype=int)
     wc_mask = WordCloud(mask=mask, random_state=42)
     wc_mask.generate(THIS)
     assert_array_equal(wc, wc_mask)
 
     # use actual nonzero mask
-    mask = np.zeros((234, 456), dtype=np.int)
+    mask = np.zeros((234, 456), dtype=int)
     mask[100:150, 300:400] = 255
 
     wc = WordCloud(mask=mask)
@@ -207,7 +259,7 @@ def test_mask():
 def test_mask_contour():
     # test mask contour is created, learn more at:
     # https://github.com/amueller/word_cloud/pull/348#issuecomment-370883873
-    mask = np.zeros((234, 456), dtype=np.int)
+    mask = np.zeros((234, 456), dtype=int)
     mask[100:150, 300:400] = 255
 
     sm = WordCloud(mask=mask, contour_width=1, contour_color='blue')
@@ -271,6 +323,20 @@ def test_process_text():
 
     # check for proper return type
     assert isinstance(result, dict)
+
+
+def test_process_text_default_patterns():
+    wc = WordCloud(stopwords=set(), include_numbers=True, min_word_length=2)
+    words = wc.process_text(THIS)
+
+    wc2 = WordCloud(stopwords=set(), include_numbers=True, min_word_length=1)
+    words2 = wc2.process_text(THIS)
+
+    assert "a" not in words
+    assert "3" not in words
+
+    assert "a" in words2
+    assert "3" in words2
 
 
 def test_process_text_regexp_parameter():
@@ -343,7 +409,9 @@ def test_recolor_too_small_set_default():
 
 def test_small_canvas():
     # check font size fallback works on small canvas
-    WordCloud(max_words=50, width=20, height=20).generate(THIS)
+    wc = WordCloud(max_words=50, width=21, height=21)
+    wc.generate(SMALL_CANVAS)
+    assert len(wc.layout_) > 0
 
 
 def test_tiny_canvas():
@@ -351,6 +419,7 @@ def test_tiny_canvas():
     w = WordCloud(max_words=50, width=1, height=1)
     with pytest.raises(ValueError, match="Couldn't find space to draw"):
         w.generate(THIS)
+    assert len(w.layout_) == 0
 
 
 def test_coloring_black_works():
@@ -396,3 +465,40 @@ def test_zero_frequencies():
     word_cloud.generate_from_frequencies({'test': 1, 'test1': 0, 'test2': 0})
     assert len(word_cloud.layout_) == 1
     assert word_cloud.layout_[0][0][0] == 'test'
+
+
+def test_plural_stopwords():
+    x = '''was was was was was was was was was was was was was was was
+    wa
+    hello hello hello hello hello hello hello hello
+    goodbye good bye maybe yes no'''
+    w = WordCloud().generate(x)
+    assert w.words_['wa'] < 1
+
+    w = WordCloud(collocations=False).generate(x)
+    assert w.words_['wa'] < 1
+
+
+def test_max_font_size_as_mask_height():
+    # test if max font size will respect the mask height
+    x = '''hello hello hello
+    bye'''
+
+    # Get default wordcloud size
+    wcd = WordCloud()
+    default_size = (wcd.height, wcd.width)
+    # Make sure the size we are using is larger than the default size
+    size = (default_size[0] * 2, default_size[1] * 2)
+
+    # using mask, all drawable
+    mask = np.zeros(size, dtype=int)
+    mask[:, :] = 0
+    wc = WordCloud(mask=mask, random_state=42)
+    wc.generate(x)
+
+    # no mask
+    wc2 = WordCloud(width=size[1], height=size[0], random_state=42)
+    wc2.generate(x)
+
+    # Check if the biggest element has the same font size
+    assert wc.layout_[0][1] == wc2.layout_[0][1]

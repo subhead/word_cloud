@@ -58,6 +58,9 @@ out/
 # mpeltonen/sbt-idea plugin
 .idea_modules/
 
+# VSCode
+.vscode
+
 # JIRA plugin
 atlassian-ide-plugin.xml
 
@@ -222,3 +225,5 @@ dmypy.json
 
 # Custom rules (everything added below won't be overriden by 'Generate .gitignore File' if you use 'Update' option)
 
+wordcloud/_version.py
+wordcloud/query_integral_image.c
